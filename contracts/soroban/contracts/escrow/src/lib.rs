@@ -173,6 +173,8 @@ pub enum EscrowErrorExt {
     SideBetsNotSettled = 54,
     /// Side bet token differs from the match wager token (Issue #459).
     SideBetTokenMismatch = 55,
+    /// Contract is already initialized (Issue #551).
+    AlreadyInitialized = 56,
 }
 
 /// Payload for player deposit authorization with nonce-based replay protection (Issue #284).
@@ -1049,6 +1051,8 @@ pub enum DataKey {
     SideBetStake(String, Address, PlayerColor),
     /// Protocol fee (bps) taken from losing spectator side pools (Issue #459).
     SideBetFeeBps,
+    /// Explicit initialization flag to prevent re-initialization (Issue #551).
+    Initialized,
 }
 
 /// Aggregated operational metrics for off-chain indexing and monitoring (Issue #288).
@@ -1074,7 +1078,15 @@ impl ChessterEscrow {
     /// * `coordinator` - Coordinator wallet address.
     /// * `admin_bps` - Admin fee in basis points (500 = 5%).
     pub fn init(env: Env, coordinator: Address, admin_bps: u32) {
+        if env.storage().instance().has(&DataKey::Initialized)
+            || env.storage().instance().has(&symbol_short!("coord"))
+        {
+            panic_with_error!(&env, EscrowErrorExt::AlreadyInitialized);
+        }
         coordinator.require_auth();
+        env.storage()
+            .instance()
+            .set(&DataKey::Initialized, &true);
         env.storage()
             .instance()
             .set(&symbol_short!("coord"), &coordinator);
@@ -2453,7 +2465,11 @@ impl ChessterEscrow {
     pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
         let coordinator = Self::get_coordinator(env.clone());
         coordinator.require_auth();
-        env.deployer().update_current_contract_wasm(new_wasm_hash);
+        env.deployer().update_current_contract_wasm(new_wasm_hash.clone());
+        env.events().publish(
+            (symbol_short!("upgraded"), coordinator),
+            new_wasm_hash,
+        );
     }
 
     // -----------------------------------------------------------------------

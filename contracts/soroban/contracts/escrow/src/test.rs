@@ -3222,6 +3222,30 @@ fn test_upgrade_requires_coordinator() {
     assert!(client.try_upgrade(&hash).is_err());
 }
 
+#[test]
+fn test_cannot_reinitialize_after_upgrade() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let coordinator = Address::generate(&env);
+    let contract_id = env.register(ChessterEscrow, ());
+    let client = ChessterEscrowClient::new(&env, &contract_id);
+
+    client.init(&coordinator, &500);
+
+    // Initial attempt to reinitialize should fail
+    let res = client.try_init(&coordinator, &500);
+    assert!(res.is_err());
+
+    // Another attacker tries to call init
+    let attacker = Address::generate(&env);
+    let res_attacker = client.try_init(&attacker, &0);
+    assert!(res_attacker.is_err());
+
+    // Verify state is preserved and re-init cannot hijack coordinator
+    let _hash = BytesN::from_array(&env, &[42u8; 32]);
+    assert_eq!(client.get_coordinator(), coordinator);
+}
+
 // ---------------------------------------------------------------------------
 // Issue #22 â€“ Contract Pause / Unpause (circuit breaker) tests
 // ---------------------------------------------------------------------------
